@@ -11,10 +11,13 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.util.Date;
 
 public class ChatClient extends Application {
     private String username;
     private TextArea clientLog = new TextArea();
+
+    private Socket socket;
     private ObjectOutputStream toServer = null;
     private ObjectInputStream fromServer = null;
 
@@ -22,9 +25,6 @@ public class ChatClient extends Application {
     public void start( Stage primaryStage ) throws Exception {
         //Connect client to server
         doConnect();
-
-        //Ask user for username
-        createUser();
 
         //Create window
         Stage window = primaryStage;
@@ -51,32 +51,58 @@ public class ChatClient extends Application {
         window.setScene( scene );
         window.show();
 
+        //Ask user for username and update window title
+        createUser();
+        window.setTitle( "Client: " + username );
+
         //Handle submit
         submitButton.setOnAction( e -> {
             try {
+                //Creating BMI object
+                Message message = new Message( "DATA", " " + username + ": " + clientInput.getText().trim() );
+
                 //Send object to server
-                toServer.writeObject( "DATA " + username + ":" + clientInput.getText().trim() + "\n" );
+                toServer.writeObject( message );
                 toServer.flush();
 
-                clientLog.appendText( fromServer.readObject().toString() );
-            } catch ( ClassNotFoundException ex ) {
-                ex.printStackTrace();
+                //Empty textfield
+                clientInput.clear();
             } catch ( IOException ex ) {
                 ex.printStackTrace();
             }
         } );
+
+        //Create a new thread that always check for new messages
+        new Thread( () -> {
+            while (true) {
+                try {
+                    //Get response from server
+                    Object result = fromServer.readObject();
+
+                    //Add to log
+                    clientLog.appendText(result.toString() + "\n");
+                } catch (ClassNotFoundException ex) {
+                    ex.printStackTrace();
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                }
+            }
+        } ).start();
     }
 
     private void doConnect() {
         try {
             //Connect
-            Socket socket = new Socket( "localhost", 7331 );
+            socket = new Socket( "localhost", 1337 );
 
             //Create output stream
             toServer = new ObjectOutputStream( socket.getOutputStream() );
 
             //Get response from server
             fromServer = new ObjectInputStream( socket.getInputStream() );
+
+            //Print a nice message
+            clientLog.appendText( new Date() + ": Chat client is open!\n" );
         } catch ( IOException ex ) {
             ex.printStackTrace();
         }
@@ -84,11 +110,27 @@ public class ChatClient extends Application {
 
     private void createUser() {
         try {
+            //Get username
             username = ClientPopUp.getUsername();
 
+            //Create message object
+            Message msg = new Message( "JOIN", " " + username + ", " + socket.getInetAddress().getHostAddress() + ":1337" );
+
             //Send object to server
-            toServer.writeObject( "JOIN " + username + ",");
+            toServer.writeObject( msg );
             toServer.flush();
+
+            //Get response from server
+            Message result = (Message) fromServer.readObject();
+
+            //Add ok message to log
+            clientLog.appendText( result.getType() + "\n");
+
+            if ( result.getType().equals( "J_ERR" ) ) {
+                createUser();
+            }
+        } catch (ClassNotFoundException ex) {
+            ex.printStackTrace();
         } catch ( IOException ex ) {
             ex.printStackTrace();
         }
