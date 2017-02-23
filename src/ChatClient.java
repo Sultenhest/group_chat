@@ -16,6 +16,7 @@ import java.util.Date;
 public class ChatClient extends Application {
     private String username;
     private TextArea clientLog = new TextArea();
+    boolean programOpen = true;
 
     private Socket socket;
     private ObjectOutputStream toServer = null;
@@ -58,15 +59,35 @@ public class ChatClient extends Application {
         //Handle submit
         submitButton.setOnAction( e -> {
             try {
-                //Creating BMI object
-                Message message = new Message( "DATA", " " + username + ": " + clientInput.getText().trim() );
+                //Check length of user message
+                if ( clientInput.getText().trim().length() > 250 ) {
+                    clientLog.appendText( "J_ERR : Message too long.\n" );
+                } else {
+                    Message message = new Message();
 
-                //Send object to server
-                toServer.writeObject( message );
-                toServer.flush();
+                    if ( clientInput.getText().trim().equals( "QUIT" ) ) {
+                        message.setType( "QUIT" );
+                        message.setMessage( username );
+                        programOpen = false;
+                    } else {
+                        //Create message object
+                        message.setType( "DATA" );
+                        message.setMessage( " " + username + ": " + clientInput.getText().trim() );
+                    }
 
-                //Empty textfield
-                clientInput.clear();
+                    //Send object to server
+                    toServer.writeObject( message );
+                    toServer.flush();
+
+                    //Empty textfield
+                    clientInput.clear();
+                }
+
+                if ( !programOpen ) {
+                    e.consume();
+                    window.close();
+                }
+
             } catch ( IOException ex ) {
                 ex.printStackTrace();
             }
@@ -74,19 +95,35 @@ public class ChatClient extends Application {
 
         //Create a new thread that always check for new messages
         new Thread( () -> {
-            while (true) {
+            //While program is running
+            while ( programOpen ) {
                 try {
+                    //Sleep for 2 milliseconds
+                    Thread.sleep( 200 );
+
                     //Get response from server
                     Object result = fromServer.readObject();
 
                     //Add to log
                     clientLog.appendText(result.toString() + "\n");
-                } catch (ClassNotFoundException ex) {
+                } catch ( InterruptedException ex ) {
                     ex.printStackTrace();
-                } catch (IOException ex) {
+                } catch ( ClassNotFoundException ex ) {
+                    ex.printStackTrace();
+                } catch ( IOException ex ) {
                     ex.printStackTrace();
                 }
             }
+
+            try {
+                //Close connection when programOpen == false
+                toServer.close();
+                fromServer.close();
+                socket.close();
+            } catch ( IOException ex ) {
+                ex.printStackTrace();
+            }
+
         } ).start();
     }
 

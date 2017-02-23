@@ -16,13 +16,11 @@ import java.net.Socket;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Date;
+import java.util.*;
 
 public class ChatServer extends Application {
     private TextArea serverLog = new TextArea();
-    private static List<HandleChatClient> clientList = new ArrayList<>();
+    private static Map<String, HandleChatClient> clientMap = new HashMap<>();
 
     @Override
     public void start( Stage primaryStage ) throws Exception {
@@ -46,13 +44,13 @@ public class ChatServer extends Application {
                 ServerSocket serverSocket = new ServerSocket( 1337  );
                 serverLog.appendText( new Date() + ": Chat server is running!\n" );
 
-                while (true) {
+                while ( true ) {
                     //Listen for a new connection request
                     Socket socket = serverSocket.accept();
 
                     //Create a new thread for the new client
                     HandleChatClient hcc = new HandleChatClient( socket );
-                    clientList.add( hcc );
+                    clientMap.put( "tempname", hcc );
                     new Thread( hcc ).start();
                 }
             }  catch (IOException ex) {
@@ -61,20 +59,31 @@ public class ChatServer extends Application {
         } ).start();
     }
 
-    public boolean checkUsernameAvailability( Message message, ObjectOutputStream outputToClient ) {
+    private synchronized boolean checkUsernameAvailability( Message message, ObjectOutputStream outputToClient ) {
         boolean answer = false;
+        String username = message.getMessage().trim().substring(0, message.getMessage().indexOf( ',' ) - 1 );
 
         try {
-            //Print JOIN message in server log
-            serverLog.appendText(message.toString() + "\n");
+            if ( checkUsernameChars( username ) && username.length() < 13 &&
+                    !clientMap.containsKey( username ) ) {
+                //Add to hashmap
+                HandleChatClient tempHCC = clientMap.get( "tempname" );
+                clientMap.remove( "tempname" );
+                clientMap.put( username, tempHCC );
 
-            //Return J_OK to client
-            outputToClient.writeObject( new Message( "J_OK", "" ) );
-            answer = true;
+                //Inform about new list
+                writeClientsListToAll( tempHCC );
 
-            //Return J_ERR to client
-            //outputToClient.writeObject(new Message("J_ERR", ""));
-            //answer = false;
+                //Print JOIN message in server log
+                serverLog.appendText( message.toString() + "\n" );
+
+                //Return J_OK to client
+                outputToClient.writeObject( new Message("J_OK", "") );
+                answer = true;
+            } else {
+                //Return J_ERR to client
+                outputToClient.writeObject( new Message("J_ERR", "") );
+            }
         } catch ( IOException ex ) {
             ex.printStackTrace();
         }
@@ -82,15 +91,72 @@ public class ChatServer extends Application {
         return answer;
     }
 
-    public void writeToAllClients( Message message ) {
-        try {
-            for ( HandleChatClient client : clientList ) {
-                ObjectOutputStream oos = client.getOutputStream();
+    private boolean checkUsernameChars( String str ) {
+        for ( int i = 0; i < str.length(); i++ ) {
+            char currentChar = str.charAt( i );
 
+            if ( !Character.isLetterOrDigit( currentChar ) ) {
+                if ( currentChar != '_' && currentChar != '-' ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private void writeClientsListToAll( HandleChatClient excludeThisHCC ) {
+        Message msg = new Message( "LIST", "" );
+        String userList = "";
+
+        //Loop through keys and add to message string
+        for ( String key : clientMap.keySet() ) {
+            userList += key + ", ";
+        }
+
+        //Remove last comma
+        userList = userList.substring( 0, userList.length() - 2 );
+
+        //Add string to message object
+        msg.setMessage( " " + userList );
+
+        //Write to clients, excluding the new client
+        try {
+            for ( HandleChatClient clientConnection : clientMap.values() ) {
+                if ( clientConnection != excludeThisHCC ) {
+                    ObjectOutputStream oos = clientConnection.getOutputStream();
+                    oos.writeObject( msg );
+                }
+            }
+        } catch ( IOException ex ) {
+            ex.printStackTrace();
+        }
+    }
+
+    private void writeToAllClients( Message message ) {
+        try {
+            for ( HandleChatClient clientConnection : clientMap.values() ) {
+                ObjectOutputStream oos = clientConnection.getOutputStream();
                 oos.writeObject( message );
             }
         } catch ( IOException ex ) {
             ex.printStackTrace();
+        }
+    }
+
+    private void disconnectUser( String username ) {
+        HandleChatClient temp;
+
+        //Remove the disconnecting client
+        for ( String key : clientMap.keySet() ) {
+            if ( key.equals( username ) ) {
+                temp = clientMap.get( key );
+                clientMap.remove( username );
+
+                if( clientMap.size() > 0 ) {
+                    writeClientsListToAll(temp);
+                }
+            }
         }
     }
 
@@ -116,25 +182,25 @@ public class ChatServer extends Application {
                 ObjectInputStream inputFromClient = new ObjectInputStream( socket.getInputStream() );
                 outputToClient = new ObjectOutputStream( socket.getOutputStream() );
 
-                while ( true ) {
+                while (true) {
                     //Get object returned from client
                     Message messageFromClient = (Message) inputFromClient.readObject();
                     String msgType = messageFromClient.getType();
 
-                    switch ( msgType ) {
+                    switch (msgType) {
                         case "JOIN":
                             checkUsernameAvailability( messageFromClient, outputToClient );
                             break;
                         case "DATA":
-                            //Send message to all clients
                             writeToAllClients( messageFromClient );
                             break;
                         case "ALVE":
                             break;
                         case "QUIT":
+                            disconnectUser( messageFromClient.getMessage() );
                             break;
                         default:
-                            System.out.println( "Something that shouldn't happen happened.. Sorry" );
+                            System.out.println("Something that shouldn't happen happened.. Sorry");
                             break;
                     }
                 }

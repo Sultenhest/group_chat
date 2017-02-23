@@ -4,6 +4,11 @@ public class Message implements Serializable {
     private String type;
     private String message;
 
+    public Message() {
+        setType("QUIT");
+        setMessage("");
+    }
+
     public Message( String type, String message ) {
         setType( type );
         setMessage( message );
