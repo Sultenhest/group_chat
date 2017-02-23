@@ -67,7 +67,7 @@ public class ChatClient extends Application {
 
                     if ( clientInput.getText().trim().equals( "QUIT" ) ) {
                         message.setType( "QUIT" );
-                        message.setMessage( username );
+                        message.setMessage( " " + username );
                         programOpen = false;
                     } else {
                         //Create message object
@@ -83,6 +83,7 @@ public class ChatClient extends Application {
                     clientInput.clear();
                 }
 
+                //Close window
                 if ( !programOpen ) {
                     e.consume();
                     window.close();
@@ -98,32 +99,38 @@ public class ChatClient extends Application {
             //While program is running
             while ( programOpen ) {
                 try {
-                    //Sleep for 2 milliseconds
-                    Thread.sleep( 200 );
-
                     //Get response from server
                     Object result = fromServer.readObject();
 
                     //Add to log
                     clientLog.appendText(result.toString() + "\n");
-                } catch ( InterruptedException ex ) {
-                    ex.printStackTrace();
                 } catch ( ClassNotFoundException ex ) {
                     ex.printStackTrace();
                 } catch ( IOException ex ) {
                     ex.printStackTrace();
                 }
             }
+        } ).start();
 
-            try {
-                //Close connection when programOpen == false
-                toServer.close();
-                fromServer.close();
-                socket.close();
-            } catch ( IOException ex ) {
-                ex.printStackTrace();
+        //Send pulse
+        new Thread( () -> {
+            while ( programOpen ) {
+                try {
+                    //Sleep
+                    Thread.sleep( 5000 );
+
+                    //Compose ALVE msg
+                    Message message = new Message( "ALVE", " " + username );
+
+                    //Send it to server
+                    toServer.writeObject( message );
+                    toServer.flush();
+                } catch ( InterruptedException ex ) {
+                    ex.printStackTrace();
+                } catch ( IOException ex ) {
+                    ex.printStackTrace();
+                }
             }
-
         } ).start();
     }
 

@@ -133,7 +133,7 @@ public class ChatServer extends Application {
         }
     }
 
-    private void writeToAllClients( Message message ) {
+    private synchronized void writeToAllClients( Message message ) {
         try {
             for ( HandleChatClient clientConnection : clientMap.values() ) {
                 ObjectOutputStream oos = clientConnection.getOutputStream();
@@ -144,14 +144,14 @@ public class ChatServer extends Application {
         }
     }
 
-    private void disconnectUser( String username ) {
+    private synchronized void disconnectUser( String username ) {
         HandleChatClient temp;
 
         //Remove the disconnecting client
         for ( String key : clientMap.keySet() ) {
-            if ( key.equals( username ) ) {
+            if ( key.equals( username.trim() ) ) {
                 temp = clientMap.get( key );
-                clientMap.remove( username );
+                clientMap.remove( key );
 
                 if( clientMap.size() > 0 ) {
                     writeClientsListToAll(temp);
@@ -165,7 +165,9 @@ public class ChatServer extends Application {
     }
 
     class HandleChatClient implements Runnable {
+        private boolean running = true;
         private Socket socket;
+        private ObjectInputStream inputFromClient;
         private ObjectOutputStream outputToClient;
 
         public HandleChatClient( Socket socket ) {
@@ -179,10 +181,10 @@ public class ChatServer extends Application {
         public void run() {
             try {
                 //Creating input and output streams
-                ObjectInputStream inputFromClient = new ObjectInputStream( socket.getInputStream() );
+                inputFromClient = new ObjectInputStream( socket.getInputStream() );
                 outputToClient = new ObjectOutputStream( socket.getOutputStream() );
 
-                while (true) {
+                while ( running ) {
                     //Get object returned from client
                     Message messageFromClient = (Message) inputFromClient.readObject();
                     String msgType = messageFromClient.getType();
@@ -195,9 +197,12 @@ public class ChatServer extends Application {
                             writeToAllClients( messageFromClient );
                             break;
                         case "ALVE":
+                            System.out.println( messageFromClient.toString() );
                             break;
                         case "QUIT":
+                            serverLog.appendText( messageFromClient.toString() );
                             disconnectUser( messageFromClient.getMessage() );
+                            stopRunning();
                             break;
                         default:
                             System.out.println("Something that shouldn't happen happened.. Sorry");
@@ -206,6 +211,17 @@ public class ChatServer extends Application {
                 }
             } catch ( ClassNotFoundException ex ) {
                 ex.printStackTrace();
+            } catch ( IOException ex ) {
+                ex.printStackTrace();
+            }
+        }
+
+        public void stopRunning() {
+            try {
+                running = false;
+                inputFromClient.close();
+                outputToClient.close();
+                socket.close();
             } catch ( IOException ex ) {
                 ex.printStackTrace();
             }
